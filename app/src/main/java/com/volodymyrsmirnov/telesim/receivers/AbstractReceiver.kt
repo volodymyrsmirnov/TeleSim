@@ -18,8 +18,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 abstract class AbstractReceiver : BroadcastReceiver() {
+    companion object {
+        private val OTP_PATTERN = Pattern.compile(
+            "(?:OTP|code|is|enter)\\s*:?\\s*(?:is:?\\s*)?(\\d{4,8})",
+            Pattern.CASE_INSENSITIVE
+        )
+    }
+
     abstract override fun onReceive(context: Context, intent: Intent)
 
     protected val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -43,10 +51,36 @@ abstract class AbstractReceiver : BroadcastReceiver() {
         return simCard?.displayName ?: "SIM ${simSlot + 1}"
     }
 
+    fun extractCode(smsText: String?): String? {
+        if (smsText.isNullOrEmpty()) {
+            return null
+        }
+
+        val matcher = OTP_PATTERN.matcher(smsText)
+
+        while (matcher.find()) {
+            matcher.group(1)?.let {
+                return it
+            }
+        }
+
+        return null
+    }
+
     private fun formatMessage(messageType: MessageType): String {
         return when (messageType) {
             is MessageType.Sms -> {
-                "<blockquote>${messageType.content}</blockquote>\n\n📱 ${messageType.simDisplayName} from <code>${messageType.phoneNumber}</code>"
+                var message = "<blockquote>${messageType.content}</blockquote>"
+
+                val code = extractCode(messageType.content)
+
+                if (!code.isNullOrEmpty()) {
+                    message += "\n\nOTP code (click to copy): <code>${code}</code>"
+                }
+
+                message += "\n\n📱 ${messageType.simDisplayName} from <code>${messageType.phoneNumber}</code>"
+
+                return message
             }
 
             is MessageType.Call -> {
